@@ -1,0 +1,123 @@
+<%@ page import="java.util.Set" %>\
+<%@ page import="java.util.ArrayList" %>\
+<%@ page import="java.util.Iterator" %>\
+<%@ page import="java.util.Collections" %>\
+<%@ page import="java.util.Comparator" %>\
+<%@ page import="java.util.logging.Logger" %>\
+<%@ page import="java.util.logging.Level" %>\
+<%@ page import="java.io.IOException" %>\
+<%@ page import="java.io.PrintWriter" %>\
+<%@ page import="javax.management.ObjectName" %>\
+<%@ page import="javax.management.MBeanServer" %>\
+<%@ page import="javax.servlet.ServletException" %>\
+<%@ page import="javax.servlet.GenericServlet" %>\
+<%@ page import="javax.servlet.ServletRequest" %>\
+<%@ page import="javax.servlet.ServletResponse" %>\
+<%@ page import="javax.servlet.http.HttpServletRequest" %>\
+<%@ page import="javax.servlet.http.HttpServletResponse" %>\
+<%@ page import="com.caucho.util.L10N" %>\
+<%@ page import="com.caucho.util.QDate" %>\
+<%@ page import="com.caucho.log.Log" %>\
+<%@ page import="com.caucho.config.ConfigException" %>\
+<%@ page import="com.caucho.jmx.Jmx" %>\
+<%@ page import="com.caucho.management.server.*" %>\
+<%
+MBeanServer _mbeanServer = Jmx.getGlobalMBeanServer();
+ResinMXBean _resin = (ResinMXBean) Jmx.findGlobal("resin:type=Resin");
+ServerMXBean _server = (ServerMXBean) Jmx.findGlobal("resin:type=Server");
+ClusterMXBean _cluster = (ClusterMXBean) Jmx.findGlobal("resin:type=Cluster");
+ProxyCacheMXBean _proxyCache = (ProxyCacheMXBean) Jmx.findGlobal("resin:type=ProxyCache");
+
+java.util.Calendar cal = java.util.Calendar.getInstance();
+out.print(cal.get(java.util.Calendar.YEAR) + "-" + (cal.get(java.util.Calendar.MONTH) +1) + "-" + cal.get(java.util.Calendar.DAY_OF_MONTH) + " " + cal.get(java.util.Calendar.HOUR_OF_DAY) + ":" + cal.get(java.util.Calendar.MINUTE) +":" + cal.get(java.util.Calendar.SECOND) + ",");
+
+long maxMemory = Runtime.getRuntime().maxMemory();
+long totalMemory = _server.getRuntimeMemory();
+long freeMemory = _server.getRuntimeMemoryFree();
+String strMaxMem = new StringBuffer().append(maxMemory/1000000).append(".")
+                       .append((maxMemory/ 100000) % 10).append((maxMemory/ 10000) % 10)
+                       .toString();
+String strTotlaMem = new StringBuffer().append(totalMemory/1000000).append(".")
+                       .append((totalMemory / 100000) % 10).append((totalMemory / 10000) % 10)
+                       .toString();
+String strFreeMem = new StringBuffer().append(freeMemory/1000000).append(".")
+                       .append((freeMemory / 100000) % 10).append((freeMemory / 10000) % 10)
+                       .toString();
+
+out.print("MaxMem:" + strMaxMem + ",TotalMem:" + strTotlaMem + ",FreeMem:" + strFreeMem + ",");
+
+PortMXBean []portList = _server.getPorts();
+
+String activeConn = "";
+String keepAliveConn = "";
+String connCount = "";
+for (int i = 0; i < portList.length; i++) {
+  PortMXBean port = portList[i];
+  if (port == null || ! "active".equals(port.getState()))
+    continue;
+  String host = port.getAddress();
+  if (host == null)
+    host = "*";
+  activeConn = activeConn + port.getThreadActiveCount() +";";
+  keepAliveConn = keepAliveConn + port.getThreadKeepaliveCount() +";";
+  connCount = connCount + port.getThreadActiveCount() + ";";
+}
+if ( activeConn.length() > 1) {
+  activeConn = activeConn.substring(0,activeConn.length() - 1);
+  keepAliveConn = keepAliveConn.substring(0,keepAliveConn.length() - 1);
+  connCount = connCount.substring(0,connCount.length() - 1);
+}
+out.print("Active:" + activeConn + ",");
+out.print("Keepalive:" + keepAliveConn + ",");
+out.print("Connection:" + connCount + ",");
+
+ThreadPoolMXBean threadPool = (ThreadPoolMXBean) Jmx.findGlobal("resin:type=ThreadPool");
+out.print("MaxThread:" + threadPool.getThreadMax() + ",");
+out.print("ActiveThread:" + threadPool.getThreadActiveCount() + ",");
+
+ObjectName pattern = new ObjectName("resin:*,type=ConnectionPool");
+Set<ObjectName> poolNames;
+poolNames = _mbeanServer.queryNames(pattern, null);
+String poolnameList = "";
+String poolactivecount = "";
+String pooltotalcount = "";
+String poolmaxcount = "";
+if (poolNames.size() > 0) {
+  Iterator<ObjectName> iter = poolNames.iterator();
+  while (iter.hasNext()) {
+    ObjectName name = iter.next();
+    ConnectionPoolMXBean pool = (ConnectionPoolMXBean) Jmx.findGlobal(name);
+    if (pool != null) {
+      poolnameList += pool.getName() + ";";
+      poolactivecount = poolactivecount + pool.getConnectionActiveCount() + ";";
+      pooltotalcount = pooltotalcount + pool.getConnectionCount() + ";";  
+      poolmaxcount = poolmaxcount + pool.getMaxConnections() + ";";
+    }
+  }
+  if(poolnameList.length() > 1) {
+    poolnameList = poolnameList.substring(0,poolnameList.length() - 1);
+    poolactivecount = poolactivecount.substring(0,poolactivecount.length() - 1);
+    pooltotalcount = pooltotalcount.substring(0,pooltotalcount.length() - 1);
+    poolmaxcount = poolmaxcount.substring(0,poolmaxcount.length() - 1);
+  }
+}
+  out.print("JdbcName:" + poolnameList + ",JdbcActive:" + poolactivecount + ",JdbcTotal:" + pooltotalcount + ",JdbcMax:" + poolmaxcount);
+/**
+        begin to get session
+*/
+ObjectName appPattern = new ObjectName("resin:*,Host=default,type=WebApp,name=/");
+
+Set<ObjectName> names = _mbeanServer.queryNames(appPattern, null);
+Iterator<ObjectName> iter = names.iterator();
+ArrayList<WebAppMXBean> apps = new ArrayList<WebAppMXBean>();
+while (iter.hasNext()) {
+	ObjectName name = iter.next();
+	try {
+		WebAppMXBean app = (WebAppMXBean) Jmx.findGlobal(name);
+		out.print(",SessionActive:" + app.getSessionManager().getSessionActiveCount());
+		out.println(",SessionMax:" + app.getSessionManager().getSessionMax());
+	} catch (Exception e) {
+	}
+}
+%>
+
